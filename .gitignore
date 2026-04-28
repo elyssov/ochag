@@ -1,0 +1,25 @@
+# State / runtime
+ochag.db
+ochag.db-shm
+ochag.db-wal
+ochag.exe
+ochag.exe~
+
+# Client tokens (per-session, never commit)
+client/.ochag-token
+client/.ochag-token-*
+client/.ochag-last-id
+client/.ochag-last-*.json
+
+# Build / cache
+server/ochag
+*.log
+
+# Editor
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
