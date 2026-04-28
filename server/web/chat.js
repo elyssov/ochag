@@ -5,6 +5,8 @@
 const STORAGE_KEY = 'ochag.session';
 const POLL_INTERVAL = 3000;
 
+// threads:v1 installed
+let replyTo = null; // {id, author, preview} or null
 let session = null;          // {id, name, role, token}
 let currentRoom = 'general';
 let lastMessageId = 0;
@@ -91,6 +93,7 @@ function updateRoomHeader() {
 async function switchRoom(name) {
   currentRoom = name;
   lastMessageId = 0;
+  clearReplyTarget();
   document.getElementById('messages').innerHTML = '';
   document.querySelectorAll('#rooms li').forEach(li => {
     li.classList.toggle('active', li.dataset.room === name);
@@ -201,6 +204,10 @@ function renderMessage(m) {
   div.id = 'msg-' + m.id;
   div.dataset.msgId = m.id;
   if (m.session_id === session.id) div.classList.add('own');
+  if (m.reply_to) {
+    div.classList.add('msg-reply');
+    div.dataset.replyTo = m.reply_to;
+  }
 
   const myMention = (m.mentions || []).includes(session.name);
   if (myMention) div.classList.add('mention');
@@ -208,25 +215,71 @@ function renderMessage(m) {
   const sessionInList = (window._sessionsCache || []).find(s => s.name === m.session_name);
   const role = sessionInList?.role || 'sister';
 
+  // Quote preview of parent (best-effort: pull from DOM if visible)
+  let quote = '';
+  if (m.reply_to) {
+    const parent = document.getElementById('msg-' + m.reply_to);
+    if (parent) {
+      const parentAuthor = parent.querySelector('.msg-author')?.textContent || '?';
+      const parentContent = parent.querySelector('.msg-content')?.textContent || '';
+      const preview = parentContent.slice(0, 60).trim();
+      quote = `<div class="msg-quote">↳ ответ на <b>${escapeHTML(parentAuthor)}</b>: «${escapeHTML(preview)}…»</div>`;
+    } else {
+      quote = `<div class="msg-quote msg-quote-orphan">↳ ответ #${m.reply_to}</div>`;
+    }
+  }
+
   div.innerHTML = `
+    ${quote}
     <div class="msg-head">
       <span class="msg-author role-${role}">${escapeHTML(m.session_name)}</span>
       <span class="msg-time">${formatTime(m.created_at)}</span>
+      <button class="msg-reply-btn" title="Ответить">↩</button>
       <button class="msg-rxn-add" title="Реакция">+</button>
     </div>
     <div class="msg-content">${formatRich(m.content)}</div>
     ${renderReactionsRow(m)}
   `;
-  // wire up the +button → emoji picker
+
   div.querySelector('.msg-rxn-add').addEventListener('click', (e) => {
     e.stopPropagation();
     openReactionPicker(m.id, e.currentTarget);
   });
-  // existing reaction pill click → toggle
+  div.querySelector('.msg-reply-btn').addEventListener('click', (e) => {
+    e.stopPropagation();
+    setReplyTarget(m);
+  });
   div.querySelectorAll('.rxn').forEach(p => {
     p.addEventListener('click', () => sendReaction(m.id, p.dataset.emoji));
   });
   return div;
+}
+
+function setReplyTarget(m) {
+  replyTo = { id: m.id, author: m.session_name, preview: (m.content || '').slice(0, 60).trim() };
+  renderReplyBadge();
+  document.getElementById('send-input').focus();
+}
+
+function clearReplyTarget() {
+  replyTo = null;
+  renderReplyBadge();
+}
+
+function renderReplyBadge() {
+  let bar = document.getElementById('reply-badge');
+  if (!replyTo) {
+    if (bar) bar.remove();
+    return;
+  }
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'reply-badge';
+    const form = document.getElementById('send-form');
+    form.parentElement.insertBefore(bar, form);
+  }
+  bar.innerHTML = `<span>↩ Отвечаю <b>${escapeHTML(replyTo.author)}</b>: «${escapeHTML(replyTo.preview)}…»</span><button id="reply-cancel" title="Отмена">✕</button>`;
+  bar.querySelector('#reply-cancel').addEventListener('click', clearReplyTarget);
 }
 
 let _activePicker = null;
@@ -302,10 +355,13 @@ async function sendMessage() {
   const input = document.getElementById('send-input');
   const text = input.value.trim();
   if (!text) return;
+  const body = { room: currentRoom, content: text };
+  if (replyTo) body.reply_to = replyTo.id;
   try {
-    await apiPost('/api/messages', { room: currentRoom, content: text });
+    await apiPost('/api/messages', body);
     input.value = '';
     input.style.height = 'auto';
+    clearReplyTarget();
     await pollMessages();
   } catch (e) {
     alert('Не отправлено: ' + e.message);
@@ -537,4 +593,101 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('toggle-sidebar').onclick = () => {
     document.getElementById('sidebar').classList.toggle('open');
   };
+});
+
+// search:v1 installed
+let _searchTimer = null;
+let _searchOverlay = null;
+
+function openSearch() {
+  if (_searchOverlay) return;
+  const overlay = document.createElement('div');
+  overlay.id = 'search-overlay';
+  overlay.innerHTML = `
+    <div class="search-card">
+      <input id="search-input" placeholder="Искать в #${currentRoom} …" autofocus>
+      <div id="search-results"></div>
+      <div class="search-hint">Esc — закрыть · ↑↓ — навигация · Enter — открыть</div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  _searchOverlay = overlay;
+
+  const input = overlay.querySelector('#search-input');
+  input.addEventListener('input', (e) => {
+    clearTimeout(_searchTimer);
+    const q = e.target.value.trim();
+    if (q.length < 2) {
+      overlay.querySelector('#search-results').innerHTML = '';
+      return;
+    }
+    _searchTimer = setTimeout(() => doSearch(q), 200);
+  });
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeSearch();
+    if (e.key === 'Enter') {
+      const first = overlay.querySelector('.search-hit');
+      if (first) first.click();
+    }
+  });
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) closeSearch();
+  });
+}
+
+function closeSearch() {
+  if (_searchOverlay) {
+    _searchOverlay.remove();
+    _searchOverlay = null;
+  }
+  clearTimeout(_searchTimer);
+}
+
+async function doSearch(q) {
+  if (!_searchOverlay) return;
+  try {
+    const url = `/api/search?q=${encodeURIComponent(q)}&room=${encodeURIComponent(currentRoom)}&limit=20`;
+    const list = await apiGet(url);
+    const box = _searchOverlay.querySelector('#search-results');
+    if (!list || list.length === 0) {
+      box.innerHTML = '<div class="search-empty">Ничего не нашлось</div>';
+      return;
+    }
+    box.innerHTML = list.map(m => {
+      const preview = (m.content || '').slice(0, 140).replace(/\n/g, ' ');
+      const time = formatTime(m.created_at);
+      return `<div class="search-hit" data-id="${m.id}" data-room="${escapeHTML(m.room || currentRoom)}">
+        <div class="search-hit-head"><b>${escapeHTML(m.session_name)}</b> <span>#${escapeHTML(m.room || currentRoom)} · ${time}</span></div>
+        <div class="search-hit-preview">${escapeHTML(preview)}</div>
+      </div>`;
+    }).join('');
+    box.querySelectorAll('.search-hit').forEach(hit => {
+      hit.addEventListener('click', async () => {
+        const id = parseInt(hit.dataset.id, 10);
+        const room = hit.dataset.room || currentRoom;
+        closeSearch();
+        if (room !== currentRoom) {
+          await switchRoom(room);
+        }
+        // Scroll to message; flash highlight briefly.
+        setTimeout(() => {
+          const target = document.getElementById('msg-' + id);
+          if (target) {
+            target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            target.classList.add('msg-flash');
+            setTimeout(() => target.classList.remove('msg-flash'), 1500);
+          }
+        }, 250);
+      });
+    });
+  } catch (e) {
+    console.warn('search failed', e);
+  }
+}
+
+document.addEventListener('keydown', (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+    e.preventDefault();
+    openSearch();
+  }
 });
