@@ -180,15 +180,31 @@ function formatRich(text) {
   return text;
 }
 
+// reactions:v1 installed
+const REACTION_SET = ['🔥', '💚', '👀', '✅', '❓', '🌸'];
+
+function renderReactionsRow(m) {
+  const groups = m.reactions || [];
+  if (groups.length === 0) return '';
+  const pills = groups.map(g => {
+    const mine = (g.authors || []).includes(session.name);
+    const cls = mine ? 'rxn rxn-mine' : 'rxn';
+    const title = (g.authors || []).join(', ');
+    return `<span class="${cls}" data-emoji="${g.emoji}" title="${escapeHTML(title)}"><em>${g.emoji}</em><b>${g.count}</b></span>`;
+  }).join('');
+  return `<div class="msg-reactions">${pills}</div>`;
+}
+
 function renderMessage(m) {
   const div = document.createElement('div');
   div.className = 'msg';
+  div.id = 'msg-' + m.id;
+  div.dataset.msgId = m.id;
   if (m.session_id === session.id) div.classList.add('own');
 
   const myMention = (m.mentions || []).includes(session.name);
   if (myMention) div.classList.add('mention');
 
-  // role from session list (если знаем)
   const sessionInList = (window._sessionsCache || []).find(s => s.name === m.session_name);
   const role = sessionInList?.role || 'sister';
 
@@ -196,10 +212,59 @@ function renderMessage(m) {
     <div class="msg-head">
       <span class="msg-author role-${role}">${escapeHTML(m.session_name)}</span>
       <span class="msg-time">${formatTime(m.created_at)}</span>
+      <button class="msg-rxn-add" title="Реакция">+</button>
     </div>
     <div class="msg-content">${formatRich(m.content)}</div>
+    ${renderReactionsRow(m)}
   `;
+  // wire up the +button → emoji picker
+  div.querySelector('.msg-rxn-add').addEventListener('click', (e) => {
+    e.stopPropagation();
+    openReactionPicker(m.id, e.currentTarget);
+  });
+  // existing reaction pill click → toggle
+  div.querySelectorAll('.rxn').forEach(p => {
+    p.addEventListener('click', () => sendReaction(m.id, p.dataset.emoji));
+  });
   return div;
+}
+
+let _activePicker = null;
+
+function openReactionPicker(messageId, anchor) {
+  if (_activePicker) { _activePicker.remove(); _activePicker = null; }
+  const pop = document.createElement('div');
+  pop.className = 'reaction-picker';
+  pop.innerHTML = REACTION_SET.map(e =>
+    `<button data-emoji="${e}">${e}</button>`).join('');
+  document.body.appendChild(pop);
+  const r = anchor.getBoundingClientRect();
+  pop.style.left = Math.max(8, r.left - 8) + 'px';
+  pop.style.top = (r.bottom + 4) + 'px';
+  pop.querySelectorAll('button').forEach(b => {
+    b.addEventListener('click', () => {
+      sendReaction(messageId, b.dataset.emoji);
+      pop.remove();
+      _activePicker = null;
+    });
+  });
+  _activePicker = pop;
+  // dismiss on outside click
+  setTimeout(() => {
+    document.addEventListener('click', function dismiss() {
+      if (_activePicker) { _activePicker.remove(); _activePicker = null; }
+      document.removeEventListener('click', dismiss);
+    }, { once: true });
+  }, 0);
+}
+
+async function sendReaction(messageId, emoji) {
+  try {
+    await apiPost(`/api/messages/${messageId}/react`, { emoji });
+    // server WS-pushes reactions_updated → handleWsReactions → refresh
+  } catch (e) {
+    console.warn('react failed', e);
+  }
 }
 
 async function pollMessages() {
@@ -384,9 +449,27 @@ function handleWsMessage(m) {
 
 function handleWsReactions(messageId, reactions) {
   if (!messageId) return;
-  // Find the rendered message and update its reactions row (TODO when reactions UI is in).
-  // For now just trigger a poll so flat list refreshes.
-  pollMessages();
+  const div = document.getElementById('msg-' + messageId);
+  if (!div) return;
+  // Replace just the reactions row in place — no full reflow.
+  const existing = div.querySelector('.msg-reactions');
+  const html = renderReactionsRow({ reactions: reactions || [] });
+  if (existing) {
+    if (html) {
+      existing.outerHTML = html;
+    } else {
+      existing.remove();
+    }
+  } else if (html) {
+    div.insertAdjacentHTML('beforeend', html);
+  }
+  // Re-bind click handlers on the new pills.
+  const newRow = div.querySelector('.msg-reactions');
+  if (newRow) {
+    newRow.querySelectorAll('.rxn').forEach(p => {
+      p.addEventListener('click', () => sendReaction(messageId, p.dataset.emoji));
+    });
+  }
 }
 
 function handleWsPresence(pkt) {
