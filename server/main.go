@@ -151,15 +151,66 @@ func hasColumn(table, col string) bool {
 	return false
 }
 
-func parseMentions(text string) []string {
-	// очень простая логика: @word, без punctuation
-	var out []string
-	for _, w := range strings.Fields(text) {
-		if strings.HasPrefix(w, "@") && len(w) > 1 {
-			name := strings.TrimRight(w[1:], ",.!?:;)")
-			if name != "" {
-				out = append(out, strings.ToLower(name))
+// stripCodeRegions удаляет fenced code blocks (```...```) и inline-код (`...`)
+// перед парсингом mentions — чтобы примеры кода с @-цитатами не ловились
+// как mentions. Это решает мой собственный повторяющийся баг где
+// «@botfather» внутри инструкции превращался в mention.
+func stripCodeRegions(text string) string {
+	// fenced code blocks first (```...```)
+	out := []byte{}
+	i := 0
+	for i < len(text) {
+		if i+2 < len(text) && text[i] == '`' && text[i+1] == '`' && text[i+2] == '`' {
+			// найти закрывающий ```
+			end := strings.Index(text[i+3:], "```")
+			if end < 0 {
+				// незакрытый — пропускаем до конца
+				return string(out)
 			}
+			i = i + 3 + end + 3
+			continue
+		}
+		if text[i] == '`' {
+			// inline code до следующего `
+			end := strings.Index(text[i+1:], "`")
+			if end < 0 {
+				out = append(out, text[i])
+				i++
+				continue
+			}
+			i = i + 1 + end + 1
+			continue
+		}
+		out = append(out, text[i])
+		i++
+	}
+	return string(out)
+}
+
+func parseMentions(text string) []string {
+	clean := stripCodeRegions(text)
+	var out []string
+	seen := map[string]bool{}
+	for _, w := range strings.Fields(clean) {
+		if !strings.HasPrefix(w, "@") || len(w) < 2 {
+			continue
+		}
+		name := strings.TrimRight(w[1:], ",.!?:;)\"'»")
+		name = strings.ToLower(name)
+		if name == "" {
+			continue
+		}
+		// дополнительный фильтр: не считать mention если начинается с цифры
+		// (например @100mhz, @99problems) или содержит = / : (типа @mention=+100)
+		if name[0] >= '0' && name[0] <= '9' {
+			continue
+		}
+		if strings.ContainsAny(name, "=:/") {
+			continue
+		}
+		if !seen[name] {
+			out = append(out, name)
+			seen[name] = true
 		}
 	}
 	return out
