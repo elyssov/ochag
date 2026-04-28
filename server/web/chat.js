@@ -96,6 +96,10 @@ async function switchRoom(name) {
     li.classList.toggle('active', li.dataset.room === name);
   });
   updateRoomHeader();
+  // Tell the server to push us this room's events (welcome auto-subs to #general).
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'subscribe', room: name }));
+  }
   await pollMessages();
 }
 

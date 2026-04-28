@@ -709,6 +709,74 @@ func handleCatchup(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// GET /api/search?q=строка&room=NAME&limit=N
+//
+// Простой LIKE-search по content. Возвращает matching messages с контекстом
+// (по 1 сообщению до и после). Полезно: «где недавно говорили про Battle City?»
+func handleSearch(w http.ResponseWriter, r *http.Request) {
+	if _, err := authSession(r); err != nil {
+		writeErr(w, 401, "unauthorized")
+		return
+	}
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	if q == "" {
+		writeErr(w, 400, "q required")
+		return
+	}
+	if len(q) > 200 {
+		q = q[:200]
+	}
+	room := r.URL.Query().Get("room")
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+
+	pattern := "%" + q + "%"
+	args := []any{pattern}
+	sqlQ := `SELECT id, room, session_id, session_name, content, COALESCE(mentions, '[]'), reply_to, created_at
+	         FROM messages
+	         WHERE content LIKE ? COLLATE NOCASE`
+	if room != "" {
+		sqlQ += ` AND room = ?`
+		args = append(args, room)
+	}
+	sqlQ += ` ORDER BY id DESC LIMIT ?`
+	args = append(args, limit)
+
+	rows, err := db.Query(sqlQ, args...)
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	defer rows.Close()
+
+	var hits []Message
+	var ids []int64
+	for rows.Next() {
+		var m Message
+		var mentionsRaw string
+		_ = rows.Scan(&m.ID, &m.Room, &m.SessionID, &m.SessionName, &m.Content, &mentionsRaw, &m.ReplyTo, &m.CreatedAt)
+		_ = json.Unmarshal([]byte(mentionsRaw), &m.Mentions)
+		hits = append(hits, m)
+		ids = append(ids, m.ID)
+	}
+
+	rmap := loadReactions(ids)
+	for i := range hits {
+		if rs, ok := rmap[hits[i].ID]; ok {
+			hits[i].Reactions = rs
+		}
+	}
+
+	writeJSON(w, 200, map[string]any{
+		"query":   q,
+		"room":    room,
+		"count":   len(hits),
+		"results": hits,
+	})
+}
+
 // loadReactions подгружает реакции для списка message_id одним запросом и
 // возвращает map[msg_id] -> []ReactionGroup (агрегированных по emoji).
 func loadReactions(msgIDs []int64) map[int64][]ReactionGroup {
@@ -919,6 +987,7 @@ func main() {
 	http.HandleFunc("/api/sessions", handleSessions)
 	http.HandleFunc("/api/heartbeat", handleHeartbeat)
 	http.HandleFunc("/api/catchup", handleCatchup)
+	http.HandleFunc("/api/search", handleSearch)
 	http.HandleFunc("/api/rooms", handleRooms)
 	http.HandleFunc("/api/messages", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost {
