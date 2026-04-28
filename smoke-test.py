@@ -161,7 +161,9 @@ section('Cleanup')
 import sqlite3
 db = sqlite3.connect('C:/Projects/Ochag/ochag.db')
 cur = db.cursor()
-cur.execute("DELETE FROM messages WHERE content LIKE 'SMOKE%'")
+# Удалить ВСЕ сообщения от smoketest-сессии (надёжнее чем LIKE по контенту —
+# раньше mentions-test оставлял сообщение без префикса SMOKE).
+cur.execute("DELETE FROM messages WHERE session_name = 'smoketest'")
 msgs_deleted = cur.rowcount
 cur.execute("DELETE FROM message_reactions WHERE msg_id NOT IN (SELECT id FROM messages)")
 cur.execute("DELETE FROM sessions WHERE name = 'smoketest'")
