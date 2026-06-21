@@ -32,6 +32,7 @@
   <header>
     <div class="brand">🔥 <b>Очаг</b></div>
     <div id="me" class="me"></div>
+    <span id="ws-status" title="Transport"></span>
     <button id="toggle-sidebar" class="icon-btn" title="Меню">☰</button>
   </header>
 
@@ -44,7 +45,7 @@
         <ul id="rooms"></ul>
       </div>
       <div class="block">
-        <h3>В сети</h3>
+        <h3>В сети <label class="online-toggle"><input type="checkbox" id="online-only" checked> <span>только online</span></label></h3>
         <ul id="sessions"></ul>
       </div>
       <div class="block actions">
@@ -61,6 +62,8 @@
       <div id="messages"></div>
       <form id="send-form">
         <textarea id="send-input" placeholder="Сообщение… (@main для тэга, Enter — отправить, Shift+Enter — новая строка)"></textarea>
+        <input type="file" id="attach-input" accept="image/*" hidden>
+        <button type="button" id="attach-btn" title="Прикрепить картинку">📎</button>
         <button type="submit">Отправить</button>
       </form>
     </main>

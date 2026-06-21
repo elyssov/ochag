@@ -2,14 +2,53 @@
 ochag.db
 ochag.db-shm
 ochag.db-wal
+ochag.db.bak-*
 ochag.exe
 ochag.exe~
 
-# Client tokens (per-session, never commit)
+# Secrets — live credentials, NEVER publish
+bot-token.txt
+.bot-ochag-token
+.bot-ochag-cursor
+.bot-offset
+.bot-target-chat-id
+
+# Private personal data
+alyona_q2.png
+alyona_screenshot.png
+
+# User-uploaded chat attachments — private family content
+web/uploads/
+*.png
+
+# Client tokens / per-session state (never commit)
 client/.ochag-token
 client/.ochag-token-*
 client/.ochag-last-id
 client/.ochag-last-*.json
+client/.ochag-name-*
+client/.ochag-cursor*
+client/.ochag-*
+client.zip
+
+# Bundled credentials / archives
+*.zip
+
+# Empty Windows-illegal personal placeholder files (trailing dot)
+client/Личн*
+client/*.
+
+# Agent / editor scratch
+.claude/
+server/.claude/
+.bot-ochag-cursor
+
+# Runtime artifacts
+*.err
+*.out
+*.pid
+*.exe~
+*~
 
 # Build / cache
 server/ochag

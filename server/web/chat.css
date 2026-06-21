@@ -121,6 +121,20 @@ header {
 .brand { font-size: 18px; }
 .me { color: var(--fg-dim); font-size: 14px; flex: 1; }
 
+#ws-status {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--bg-3);
+  color: var(--fg-dim);
+  cursor: help;
+  user-select: none;
+  white-space: nowrap;
+}
+#ws-status.ws-on   { color: #2ecc71; }
+#ws-status.ws-off  { color: #f39c12; }
+#ws-status.ws-dead { color: #95a5a6; }
+
 .icon-btn {
   background: transparent;
   border: none;
@@ -132,9 +146,21 @@ header {
 }
 .icon-btn:hover { background: var(--bg-3); }
 
+/* #app — flex column, чтобы header / catchup-banner / layout аккуратно
+   делили высоту viewport. Раньше .layout была `calc(100vh - 52px)` — при
+   появлении catchup-banner он вытеснял низ за viewport (низ блока ввода). */
+#app:not(.hidden) {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+#app > header { flex-shrink: 0; }
+#app > #catchup-banner { flex-shrink: 0; }
+
 .layout {
   display: flex;
-  height: calc(100vh - 52px);
+  flex: 1;
+  min-height: 0;
 }
 
 /* ─── Sidebar ─── */
@@ -572,4 +598,224 @@ header {
   0%   { background: rgba(201, 122, 255, 0.35); }
   100% { background: transparent; }
 }
+
+/* ─── Catchup banner ─── */
+#catchup-banner {
+  background: linear-gradient(180deg, rgba(255, 192, 92, 0.20), rgba(255, 192, 92, 0.05));
+  border-bottom: 1px solid rgba(255, 192, 92, 0.35);
+  color: #ffe1a8;
+  padding: 10px 16px;
+  font-size: 0.92em;
+}
+.catchup-summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.catchup-summary b { color: #ffd47a; font-weight: 600; }
+.catchup-summary button {
+  background: transparent;
+  border: 1px solid rgba(255, 192, 92, 0.45);
+  color: #ffe1a8;
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.95em;
+  margin-left: auto;
+}
+.catchup-summary button:hover { background: rgba(255, 192, 92, 0.18); }
+#catchup-close { margin-left: 8px !important; padding: 4px 8px !important; }
+
+.catchup-details {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.catchup-hit {
+  padding: 6px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  background: rgba(255, 192, 92, 0.06);
+  transition: background 0.1s;
+  font-size: 0.92em;
+}
+.catchup-hit:hover { background: rgba(255, 192, 92, 0.18); }
+.catchup-hit b { color: #ffd47a; }
+.catchup-room { color: rgba(255, 225, 168, 0.6); margin: 0 6px; }
+.catchup-preview { color: rgba(255, 225, 168, 0.8); }
+.catchup-empty { padding: 8px; text-align: center; font-style: italic; color: rgba(255,225,168,0.5); }
+
+/* ─── Presence (5-state) ─── */
+#sessions li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  font-size: 0.92em;
+}
+#sessions li:hover { background: rgba(255,255,255,0.04); }
+.session-dot {
+  font-size: 0.75em;
+  flex-shrink: 0;
+}
+.session-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+.session-name {
+  color: rgba(255,255,255,0.92);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.session-sub {
+  font-size: 0.78em;
+  color: rgba(255,255,255,0.45);
+  margin-top: 1px;
+  font-style: italic;
+}
+.state-active   .session-name { color: #d8ffd5; }
+.state-active   .session-dot  { filter: drop-shadow(0 0 3px rgba(70, 220, 90, 0.5)); }
+.state-idle     .session-name { color: #fff0c2; }
+.state-working  .session-name { color: #cce0ff; }
+.state-working  .session-sub  { color: rgba(150, 190, 240, 0.7); }
+.state-sleeping .session-name { color: rgba(220, 200, 255, 0.85); }
+.state-sleeping .session-dot  {
+  animation: presence-breathe 2s ease-in-out infinite;
+}
+.state-sleeping .session-sub  { color: rgba(220, 200, 255, 0.55); }
+.state-away     .session-name { color: rgba(255,255,255,0.55); }
+.state-offline  .session-name { color: rgba(255,255,255,0.35); }
+.state-offline  .session-dot  { opacity: 0.4; }
+
+@keyframes presence-breathe {
+  0%, 100% { opacity: 0.5; }
+  50%      { opacity: 1.0; }
+}
+
+/* ─── Notification toast ─── */
+#notif-toast {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 250;
+  background: var(--bg-2, #2a2522);
+  border: 1px solid rgba(201, 122, 255, 0.4);
+  border-radius: 8px;
+  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.92em;
+  color: rgba(255,255,255,0.9);
+  box-shadow: 0 6px 20px rgba(0,0,0,0.45);
+  animation: notif-slide-in 0.25s ease-out;
+}
+#notif-toast button {
+  background: transparent;
+  border: 1px solid rgba(255,255,255,0.2);
+  color: #fff;
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.92em;
+}
+#notif-toast button:hover { background: rgba(255,255,255,0.1); }
+#notif-toast #notif-yes {
+  background: rgba(201, 122, 255, 0.22);
+  border-color: rgba(201, 122, 255, 0.55);
+}
+#notif-toast #notif-yes:hover { background: rgba(201, 122, 255, 0.35); }
+#notif-toast #notif-no { padding: 4px 8px; }
+
+@keyframes notif-slide-in {
+  from { transform: translateY(20px); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
 ::-webkit-scrollbar-thumb:hover { background: var(--border); }
+
+/* attach:v1 — image upload */
+#attach-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--accent);
+  padding: 0 0.7em;
+  cursor: pointer;
+  font-size: 1.1em;
+  border-radius: 4px;
+  margin-right: 0.4em;
+  transition: background 0.15s, border-color 0.15s;
+}
+#attach-btn:hover {
+  background: rgba(255, 138, 61, 0.1);
+  border-color: var(--accent);
+}
+.msg-image {
+  max-width: 400px;
+  max-height: 300px;
+  display: block;
+  border-radius: 6px;
+  margin: 6px 0;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  transition: border-color 0.15s, transform 0.15s;
+}
+.msg-image:hover {
+  border-color: var(--accent);
+}
+.msg-image:active {
+  transform: scale(0.98);
+}
+
+/* drop-overlay для drag-and-drop image upload */
+#drop-overlay {
+  position: absolute;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 138, 61, 0.12);
+  border: 2px dashed var(--accent);
+  color: var(--accent);
+  font-size: 1.4em;
+  font-weight: 600;
+  pointer-events: none;
+  z-index: 50;
+  border-radius: 4px;
+}
+#drop-overlay.active {
+  display: flex;
+}
+#chat {
+  position: relative;
+}
+
+/* online-only toggle в "В сети" header (Юджин 30.04) */
+.online-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 400;
+  color: #8a9099;
+  margin-left: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+.online-toggle input[type="checkbox"] {
+  accent-color: #d4a850;
+  cursor: pointer;
+}
+.sessions-hidden-note {
+  list-style: none;
+  font-size: 11px;
+  color: #6a6f78;
+  font-style: italic;
+  padding: 4px 8px 0 8px;
+  text-align: center;
+}

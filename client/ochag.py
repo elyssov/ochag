@@ -68,15 +68,41 @@ def http(method, path, body=None, token=None):
         sys.exit(1)
 
 
-def load_token():
+NAME_FILE = Path(__file__).parent / f'.ochag-name-{SESSION_NAME}'
+
+
+def _read_token_file():
+    """Returns (token, name) tuple. name=None если NAME_FILE отсутствует.
+    TOKEN_FILE остаётся plain-text токеном — это совместимость с PowerShell
+    loop-prompt: `(Get-Content .ochag-token-main).Trim()` берёт весь файл
+    в Authorization header, и ему JSON туда не положишь. NAME — отдельный
+    side-file (для identity-stable reclaim в cmd_register)."""
     if not TOKEN_FILE.exists():
+        return (None, None)
+    token = TOKEN_FILE.read_text(encoding='utf-8').strip()
+    if not token:
+        return (None, None)
+    name = None
+    if NAME_FILE.exists():
+        name = NAME_FILE.read_text(encoding='utf-8').strip() or None
+    return (token, name)
+
+
+def load_token():
+    token, _ = _read_token_file()
+    if not token:
         print('❌ Не зарегистрирована. Запусти: python ochag.py register <name> <role>', file=sys.stderr)
         sys.exit(1)
-    return TOKEN_FILE.read_text(encoding='utf-8').strip()
+    return token
 
 
 def save_token(token, name, role):
+    # TOKEN_FILE — plain-text токен, чтобы Get-Content в PowerShell read'ил
+    # его как valid Bearer. NAME_FILE — отдельный, для identity-tracking
+    # на случай суффикса (main → main-7) — следующий register должен
+    # reclaim'ить под main-7, не под main, иначе server fallthrough → main-8.
     TOKEN_FILE.write_text(token + '\n', encoding='utf-8')
+    NAME_FILE.write_text(name + '\n', encoding='utf-8')
     print(f'✅ Зарегистрирована как {name} ({role}). Токен сохранён в {TOKEN_FILE.name}.')
 
 
@@ -85,17 +111,34 @@ def save_token(token, name, role):
 # ────────────────────────────────────────
 
 def cmd_register(args):
-    body = {'name': args.name, 'role': args.role}
-    # Reclaim path: если у нас есть валидный токен и имя совпадает — возвращаем себе сессию,
-    # сервер обновит token не плодя суффикс name-2, name-3.
-    if TOKEN_FILE.exists():
-        old_token = TOKEN_FILE.read_text(encoding='utf-8').strip()
-        if old_token:
-            body['reclaim_token'] = old_token
+    body = {'role': args.role}
+    old_token, old_name = _read_token_file()
+
+    # Identity persistence: если stored name из той же семьи что args.name
+    # (либо равен, либо args.name + суффикс) — используем stored name для
+    # reclaim, иначе reclaim никогда не найдёт сессию (он ищет WHERE name=?
+    # AND token=?, и token суффикс-сессии не совпадает с args.name).
+    # Семейный фильтр защищает от подмены: register foo с stored name='bar'
+    # не должен использовать stored.
+    use_name = args.name
+    if old_name and (old_name == args.name or old_name.startswith(args.name + '-')):
+        use_name = old_name
+
+    body['name'] = use_name
+    if old_token:
+        body['reclaim_token'] = old_token
+
+    sent_prefix = (body.get('reclaim_token') or '')[:8]
+    if sent_prefix:
+        print(f'→ register name={use_name!r} (CLI {args.name!r}, stored {old_name!r}) с reclaim_token={sent_prefix}…', file=sys.stderr)
+    else:
+        print(f'→ register name={use_name!r} БЕЗ reclaim_token (TOKEN_FILE пуст или отсутствует)', file=sys.stderr)
     sess = http('POST', '/api/register', body)
+    got_prefix = (sess.get('token') or '')[:8]
+    print(f'← вернулось name={sess["name"]!r}, token={got_prefix}…, id={sess["id"][:8]}…', file=sys.stderr)
     save_token(sess['token'], sess['name'], sess['role'])
-    if sess['name'] != args.name:
-        print(f'  (имя {args.name!r} было занято, выдан суффикс)')
+    if sess['name'] != use_name:
+        print(f'  ⚠ имя {use_name!r} было занято, выдан суффикс {sess["name"]!r} — reclaim не сработал')
 
 
 def cmd_send(args):

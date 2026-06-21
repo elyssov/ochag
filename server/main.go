@@ -14,12 +14,15 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -131,6 +134,14 @@ type Room struct {
 
 func now() int64 { return time.Now().Unix() }
 
+// normalizeName приводит handle к единой форме: lower + trim + ё→е.
+// Это позволяет «алёна» и «алена» с разных устройств попадать в одну сессию.
+func normalizeName(s string) string {
+	s = strings.ToLower(strings.TrimSpace(s))
+	s = strings.ReplaceAll(s, "ё", "е")
+	return s
+}
+
 func hasColumn(table, col string) bool {
 	rows, err := db.Query(fmt.Sprintf("PRAGMA table_info(%s)", table))
 	if err != nil {
@@ -226,9 +237,71 @@ func writeErr(w http.ResponseWriter, code int, msg string) {
 	writeJSON(w, code, map[string]string{"error": msg})
 }
 
+// authTouchPending — last_seen touches буферизированные между flush'ами.
+// authSession() вызывается на каждом authenticated request (poll, send,
+// react, upload, /ws auth). Прямой db.Exec UPDATE на каждом — это десятки
+// writes/сек при активной семье + tick'ах sister-loops, и под WAL они
+// всё равно сериализуются, забивая writer queue. Cache + 10s flush
+// батчит их в одну транзакцию: один writer-grab за 10с вместо сотен.
+// last_seen нужен только для presence list (UI обновляет каждые 30с),
+// 10-секундная задержка в БД незаметна.
+var (
+	authTouchMu      sync.Mutex
+	authTouchPending = map[string]int64{} // session_id -> last_seen ts
+)
+
+func recordAuthTouch(sessionID string) {
+	authTouchMu.Lock()
+	authTouchPending[sessionID] = now()
+	authTouchMu.Unlock()
+}
+
+func flushAuthTouches() {
+	authTouchMu.Lock()
+	if len(authTouchPending) == 0 {
+		authTouchMu.Unlock()
+		return
+	}
+	pending := authTouchPending
+	authTouchPending = map[string]int64{}
+	authTouchMu.Unlock()
+
+	tx, err := db.Begin()
+	if err != nil {
+		log.Printf("flushAuthTouches begin: %v", err)
+		return
+	}
+	stmt, err := tx.Prepare(`UPDATE sessions SET last_seen = ? WHERE id = ?`)
+	if err != nil {
+		_ = tx.Rollback()
+		log.Printf("flushAuthTouches prepare: %v", err)
+		return
+	}
+	for id, ts := range pending {
+		if _, err := stmt.Exec(ts, id); err != nil {
+			log.Printf("flushAuthTouches exec(%s): %v", id, err)
+		}
+	}
+	_ = stmt.Close()
+	if err := tx.Commit(); err != nil {
+		log.Printf("flushAuthTouches commit: %v", err)
+	}
+}
+
+func startAuthFlushLoop(interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	for range ticker.C {
+		flushAuthTouches()
+	}
+}
+
 func authSession(r *http.Request) (*Session, error) {
 	auth := r.Header.Get("Authorization")
 	token := strings.TrimPrefix(auth, "Bearer ")
+	if token == "" {
+		// fallback: X-Session-Token (используется в некоторых частях chat.js — POST react, upload)
+		token = r.Header.Get("X-Session-Token")
+	}
 	if token == "" {
 		// fallback: ?token= (для web UI чтобы не возиться с заголовками)
 		token = r.URL.Query().Get("token")
@@ -244,8 +317,8 @@ func authSession(r *http.Request) (*Session, error) {
 	if err != nil {
 		return nil, err
 	}
-	// touch last_seen
-	_, _ = db.Exec(`UPDATE sessions SET last_seen = ? WHERE id = ?`, now(), s.ID)
+	// touch last_seen — буферизируется, flush раз в 10с (см. flushAuthTouches)
+	recordAuthTouch(s.ID)
 	return &s, nil
 }
 
@@ -276,7 +349,7 @@ func handleRegister(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "bad json")
 		return
 	}
-	body.Name = strings.ToLower(strings.TrimSpace(body.Name))
+	body.Name = normalizeName(body.Name)
 	if body.Name == "" {
 		writeErr(w, 400, "name required")
 		return
@@ -292,12 +365,29 @@ func handleRegister(w http.ResponseWriter, r *http.Request) {
 	s.Token = uuid.NewString()
 
 	// Reclaim path: тот же owner возвращает себе имя через valid token.
+	// Identity-drift fix (11.05.2026): клиент мог сохранить token от сессии
+	// с суффиксом (получил main-2 при предыдущем register'е, записал его
+	// token в .ochag-token-main), потом приходит с args.name='main' +
+	// reclaim_token=T_main-2. Строгий match WHERE name='main' AND token=T
+	// не найдёт (T принадлежит main-2). Fallback: WHERE token=T — token
+	// уникален де-факто (uuid.NewString, шанс коллизии ~1/2^122) и =
+	// полный bearer credential, identity hijack невозможен (если кто-то
+	// уже знает T, у него уже есть auth этой сессии). Возвращаем actual
+	// stored name; client должен использовать его дальше.
 	if body.ReclaimToken != "" {
 		var existingID, existingName string
 		err := db.QueryRow(
-			`SELECT id, name FROM sessions WHERE name = ? AND token = ?`,
+			`SELECT id, name FROM sessions WHERE LOWER(REPLACE(name, 'ё', 'е')) = ? AND token = ?`,
 			body.Name, body.ReclaimToken,
 		).Scan(&existingID, &existingName)
+		matchKind := "strict"
+		if err != nil {
+			err = db.QueryRow(
+				`SELECT id, name FROM sessions WHERE token = ?`,
+				body.ReclaimToken,
+			).Scan(&existingID, &existingName)
+			matchKind = "token-only"
+		}
 		if err == nil {
 			s.ID = existingID
 			s.Name = existingName
@@ -309,17 +399,44 @@ func handleRegister(w http.ResponseWriter, r *http.Request) {
 				writeErr(w, 500, err.Error())
 				return
 			}
+			log.Printf("reclaim OK (%s): requested=%q resolved=%q id=%s old_token=%s… new_token=%s…",
+				matchKind, body.Name, existingName, existingID[:8],
+				body.ReclaimToken[:min(8, len(body.ReclaimToken))], s.Token[:8])
 			writeJSON(w, 200, s)
 			return
 		}
-		// reclaim не сработал → fallthrough к обычной регистрации
+		// reclaim не сработал ни строго, ни по token-only → fallthrough.
+		log.Printf("reclaim FAIL: requested=%q reclaim_token=%s… err=%v",
+			body.Name, body.ReclaimToken[:min(8, len(body.ReclaimToken))], err)
+	}
+
+	// Defence in depth: если клиент шлёт Authorization: Bearer <token>
+	// (как в обычных POST), и этот token принадлежит сессии с тем же
+	// именем — reuse её. Это защищает от eugene-N suffix накопления
+	// при refresh браузера у пользователя который не использует
+	// reclaim_token flow явно (старый client.js, manual API call).
+	if existing, err := authSession(r); err == nil && normalizeName(existing.Name) == body.Name {
+		s.ID = existing.ID
+		s.Name = existing.Name
+		s.Token = existing.Token // оставляем старый валидный, не ротируем
+		_, err = db.Exec(
+			`UPDATE sessions SET role = ?, last_seen = ? WHERE id = ?`,
+			s.Role, s.LastSeen, s.ID,
+		)
+		if err != nil {
+			writeErr(w, 500, err.Error())
+			return
+		}
+		writeJSON(w, 200, s)
+		return
 	}
 
 	// Имя занято? Подбираем уникальный суффикс.
+	// Сравнение нормализованное — «алёна»/«алена» считаются одним именем.
 	finalName := body.Name
 	for i := 2; i < 1000; i++ {
 		var taken int
-		_ = db.QueryRow(`SELECT COUNT(*) FROM sessions WHERE name = ?`, finalName).Scan(&taken)
+		_ = db.QueryRow(`SELECT COUNT(*) FROM sessions WHERE LOWER(REPLACE(name, 'ё', 'е')) = ?`, finalName).Scan(&taken)
 		if taken == 0 {
 			break
 		}
@@ -488,21 +605,38 @@ func handleGetMessages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	since, _ := strconv.ParseInt(r.URL.Query().Get("since"), 10, 64)
+	before, _ := strconv.ParseInt(r.URL.Query().Get("before"), 10, 64)
 	room := r.URL.Query().Get("room")
 	threaded := r.URL.Query().Get("threaded") == "true"
+	tail := r.URL.Query().Get("tail") == "true"
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	if limit <= 0 || limit > 500 {
 		limit = 100
 	}
 
+	// before=X → старые сообщения (id < X) для lazy scroll-up.
+	// При before>0 порядок DESC + reverse, чтобы вернуть последние N до X
+	// в хронологическом порядке. tail+before — равнозначно (lazy старые).
 	q := `SELECT id, room, session_id, session_name, content, COALESCE(mentions, '[]'), reply_to, created_at
-          FROM messages WHERE id > ?`
-	args := []any{since}
+          FROM messages WHERE 1=1`
+	args := []any{}
+	if before > 0 {
+		q += ` AND id < ?`
+		args = append(args, before)
+	} else {
+		q += ` AND id > ?`
+		args = append(args, since)
+	}
 	if room != "" {
 		q += ` AND room = ?`
 		args = append(args, room)
 	}
-	q += ` ORDER BY id ASC LIMIT ?`
+	// tail=true ИЛИ before>0 → последние N (DESC + reverse в Go).
+	if tail || before > 0 {
+		q += ` ORDER BY id DESC LIMIT ?`
+	} else {
+		q += ` ORDER BY id ASC LIMIT ?`
+	}
 	args = append(args, limit)
 
 	rows, err := db.Query(q, args...)
@@ -520,6 +654,14 @@ func handleGetMessages(w http.ResponseWriter, r *http.Request) {
 		_ = json.Unmarshal([]byte(mentionsRaw), &m.Mentions)
 		list = append(list, m)
 		ids = append(ids, m.ID)
+	}
+
+	// При tail=true ИЛИ before>0 БД отдала DESC (свежие первыми) —
+	// переворачиваем в хронологический порядок перед отдачей клиенту.
+	if tail || before > 0 {
+		for i, j := 0, len(list)-1; i < j; i, j = i+1, j-1 {
+			list[i], list[j] = list[j], list[i]
+		}
 	}
 
 	// Прицепляем реакции (одним запросом для всех)
@@ -571,6 +713,11 @@ func handleGetMessages(w http.ResponseWriter, r *http.Request) {
 
 // GET / — chat HTML (web UI)
 func handleHome(w http.ResponseWriter, r *http.Request) {
+	// Локальный family-мессенджер: статика часто пересобирается, кэш браузера
+	// приводил к тому что Юджин видел chat.js трёхчасовой давности после rebuild'а.
+	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+	w.Header().Set("Pragma", "no-cache")
+	w.Header().Set("Expires", "0")
 	if r.URL.Path == "/chat.js" {
 		w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
 		_, _ = w.Write(chatJS)
@@ -962,6 +1109,99 @@ func handleReact(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// POST /api/uploads — multipart/form-data, field "file"
+//
+// Загрузка картинки (image/jpeg, image/png, image/gif, image/webp).
+// Лимит: 5 MB. Ответ: {url, filename, size, mime}.
+// V1 без owner-tracking в БД — только log.Printf для аудита.
+const maxUploadBytes = 5 * 1024 * 1024 // 5 MB
+
+func handleUpload(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeErr(w, 405, "POST only")
+		return
+	}
+	s, err := authSession(r)
+	if err != nil {
+		writeErr(w, 401, "unauthorized")
+		return
+	}
+
+	// hard limit на body — защита от DoS
+	r.Body = http.MaxBytesReader(w, r.Body, maxUploadBytes+64*1024)
+	if err := r.ParseMultipartForm(maxUploadBytes); err != nil {
+		writeErr(w, 413, "file too large or invalid multipart: "+err.Error())
+		return
+	}
+
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		writeErr(w, 400, "missing file field: "+err.Error())
+		return
+	}
+	defer file.Close()
+
+	if header.Size > maxUploadBytes {
+		writeErr(w, 413, fmt.Sprintf("file too large: %d > %d", header.Size, maxUploadBytes))
+		return
+	}
+
+	// Sniff MIME type by first 512 bytes
+	sniff := make([]byte, 512)
+	n, _ := file.Read(sniff)
+	sniff = sniff[:n]
+	detectedMIME := http.DetectContentType(sniff)
+
+	allowedMIMEs := map[string]string{
+		"image/jpeg": ".jpg",
+		"image/png":  ".png",
+		"image/gif":  ".gif",
+		"image/webp": ".webp",
+	}
+	ext, ok := allowedMIMEs[detectedMIME]
+	if !ok {
+		writeErr(w, 415, "unsupported image type: "+detectedMIME)
+		return
+	}
+
+	// Reset file pointer
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		writeErr(w, 500, "seek: "+err.Error())
+		return
+	}
+
+	// Save to disk
+	fileID := uuid.New().String()
+	fileName := fileID + ext
+	uploadsDir := "web/uploads"
+	if err := os.MkdirAll(uploadsDir, 0755); err != nil {
+		writeErr(w, 500, "mkdir uploads: "+err.Error())
+		return
+	}
+	fullPath := filepath.Join(uploadsDir, fileName)
+	out, err := os.Create(fullPath)
+	if err != nil {
+		writeErr(w, 500, "create file: "+err.Error())
+		return
+	}
+	defer out.Close()
+
+	written, err := io.Copy(out, file)
+	if err != nil {
+		writeErr(w, 500, "write: "+err.Error())
+		return
+	}
+
+	log.Printf("[upload] %s uploaded %s (%d bytes, %s, original=%q)", s.Name, fileName, written, detectedMIME, header.Filename)
+
+	writeJSON(w, 200, map[string]any{
+		"url":      "/uploads/" + fileName,
+		"filename": header.Filename,
+		"size":     written,
+		"mime":     detectedMIME,
+	})
+}
+
 // GET /api/health — пинг для клиентов
 func handleHealth(w http.ResponseWriter, r *http.Request) {
 	wsClients := 0
@@ -1012,6 +1252,18 @@ func main() {
 		log.Fatal("open db:", err)
 	}
 	defer db.Close()
+	// WAL mode: writers и readers не блокируют друг друга. Снимает write-contention
+	// при concurrent ticks от sister-loops + heartbeat. busy_timeout даёт ретраи
+	// вместо немедленного «database is locked» если кто-то всё же держит lock.
+	for _, pragma := range []string{
+		"PRAGMA journal_mode=WAL",
+		"PRAGMA synchronous=NORMAL",
+		"PRAGMA busy_timeout=5000",
+	} {
+		if _, err := db.Exec(pragma); err != nil {
+			log.Printf("pragma warning (%s): %v", pragma, err)
+		}
+	}
 	if _, err = db.Exec(schemaSQL); err != nil {
 		log.Fatal("init schema:", err)
 	}
@@ -1027,6 +1279,9 @@ func main() {
 	// Hub для WebSocket fan-out
 	hub = NewHub()
 	go hub.Run()
+
+	// Background flush для буферизированных authSession last_seen touches
+	go startAuthFlushLoop(10 * time.Second)
 
 	// Routes
 	http.HandleFunc("/", handleHome)
@@ -1056,6 +1311,9 @@ func main() {
 		http.NotFound(w, r)
 	})
 	http.HandleFunc("/ws", hub.handleWS)
+	http.HandleFunc("/api/uploads", handleUpload)
+	// Static serving for /uploads/{file} → web/uploads/{file}
+	http.Handle("/uploads/", http.StripPrefix("/uploads/", http.FileServer(http.Dir("web/uploads"))))
 
 	port := defaultPort
 	if p := os.Getenv("OCHAG_PORT"); p != "" {

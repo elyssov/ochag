@@ -142,6 +142,13 @@ type Hub struct {
 	unregister chan *wsClient
 	broadcast  chan broadcastEnvelope
 	mu         sync.RWMutex
+	// staleCleanupAt — когда последний раз делали stale-cleanup для session_id.
+	// Защита от disconnect-storm: 11.05 у Юджина было ~50 reconnect'ов за
+	// 23 секунды — каждый new WS закрывал «старого» с тем же session_id, тот
+	// триггерил browser autoreconnect, который закрывал нового, и т.д. Если
+	// для session_id уже был cleanup <staleCleanupCooldown назад — не
+	// закрываем существующих, пускай оба живут до своего pong-timeout (60с).
+	staleCleanupAt map[string]time.Time
 }
 
 type broadcastEnvelope struct {
@@ -151,18 +158,52 @@ type broadcastEnvelope struct {
 
 func NewHub() *Hub {
 	return &Hub{
-		clients:    make(map[*wsClient]bool),
-		register:   make(chan *wsClient, 8),
-		unregister: make(chan *wsClient, 8),
-		broadcast:  make(chan broadcastEnvelope, 64),
+		clients:        make(map[*wsClient]bool),
+		register:       make(chan *wsClient, 8),
+		unregister:     make(chan *wsClient, 8),
+		broadcast:      make(chan broadcastEnvelope, 64),
+		staleCleanupAt: make(map[string]time.Time),
 	}
 }
+
+const staleCleanupCooldown = 3 * time.Second
 
 func (h *Hub) Run() {
 	for {
 		select {
 		case c := <-h.register:
 			h.mu.Lock()
+			// Сбросить stale-клиентов с тем же session_id: при браузерном
+			// reconnect'е (refresh / network blip) старая WS остаётся
+			// в map'е до своего pong-timeout (~60с) и накапливается —
+			// Юджин видел «clients: 3» на одного eugene-4. Закрываем
+			// здесь явно, не ждём собственного readPump'а старого.
+			//
+			// Anti-storm rate-limit: если мы уже cleanup'или для этого
+			// session_id <staleCleanupCooldown назад — не закрываем
+			// существующего. Это разрывает race: browser X закрыл свой
+			// WS → reopen → server cleanup'ит «старого» → старый browser
+			// видит close → reopen → cleanup'ит этого → loop. С cooldown'ом
+			// race затухает, оба WS живут до своих pong-timeout.
+			now := time.Now()
+			lastCleanup, hadRecent := h.staleCleanupAt[c.sessionID]
+			if !hadRecent || now.Sub(lastCleanup) >= staleCleanupCooldown {
+				didCleanup := false
+				for existing := range h.clients {
+					if existing.sessionID == c.sessionID {
+						delete(h.clients, existing)
+						close(existing.send)
+						_ = existing.conn.Close()
+						log.Printf("ws cleanup stale: %s (same session_id)", existing.name)
+						didCleanup = true
+					}
+				}
+				if didCleanup {
+					h.staleCleanupAt[c.sessionID] = now
+				}
+			} else {
+				log.Printf("ws cleanup skipped (cooldown %.1fs ago): %s", now.Sub(lastCleanup).Seconds(), c.name)
+			}
 			h.clients[c] = true
 			h.mu.Unlock()
 			log.Printf("ws connect: %s (clients: %d)", c.name, len(h.clients))
@@ -210,8 +251,30 @@ func (h *Hub) PublishMessage(m Message) {
 	}
 }
 
+// presenceThrottle: per-session timestamp последнего broadcast'а.
+// Без throttle 4 sister-loop'а × tick каждые 60-150с создавали ~96
+// presence-broadcast'ов в час, каждый = re-render списка sessions у клиента.
+// 30s интервал срезает 90% noise без потери UX (presence не real-time).
+var (
+	presenceMu       sync.Mutex
+	presenceLastSent = map[string]time.Time{} // session_id -> когда last broadcast
+)
+
+const presenceThrottleInterval = 30 * time.Second
+
 // PublishPresence — пушит обновления presence всем подписанным на #general.
+// Throttled: skip если для этой сессии уже была presence-рассылка <30с назад.
 func (h *Hub) PublishPresence(s Session) {
+	presenceMu.Lock()
+	last, seen := presenceLastSent[s.ID]
+	now := time.Now()
+	if seen && now.Sub(last) < presenceThrottleInterval {
+		presenceMu.Unlock()
+		return
+	}
+	presenceLastSent[s.ID] = now
+	presenceMu.Unlock()
+
 	envelope := struct {
 		Type    string  `json:"type"`
 		Session Session `json:"session"`
