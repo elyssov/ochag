@@ -165,14 +165,45 @@ def _save_last_map(m):
 def cmd_poll(args):
     token = load_token()
     last_map = _load_last_map()
+    is_first_poll = args.room not in last_map and args.since is None
     if args.since is not None:
         since = args.since
     else:
         since = int(last_map.get(args.room, 0))
-    msgs = http('GET', f'/api/messages?room={args.room}&since={since}&limit=200', token=token) or []
+
+    # First-poll cap: a fresh session with no last-id file should not get
+    # the entire room history. Use limit=FIRST_POLL_CAP. Subsequent polls
+    # use --max (default 200) so a sister catching up after sleep gets the
+    # full delta.
+    FIRST_POLL_CAP = 30
+    limit = FIRST_POLL_CAP if is_first_poll else args.max
+    msgs = http('GET', f'/api/messages?room={args.room}&since={since}&limit={limit}', token=token) or []
+
+    # --to-me filter: drop messages whose mentions list does not include
+    # SESSION_NAME and which were authored by the same session (self-test
+    # noise). Self-authored messages are dropped unconditionally under
+    # --to-me regardless of mentions.
+    if args.to_me:
+        me = SESSION_NAME.lower()
+        kept = []
+        for m in msgs:
+            if m.get('session_name', '').lower() == me:
+                continue  # never wake on own messages
+            mentions = [x.lower() for x in (m.get('mentions') or [])]
+            if me in mentions:
+                kept.append(m)
+        msgs = kept
+
     if not msgs:
         if not args.quiet:
-            print(f'(пусто, since={since})', file=sys.stderr)
+            extra = ' [to-me filter]' if args.to_me else ''
+            cap = ' [first-poll cap]' if is_first_poll else ''
+            print(f'(пусто, since={since}{cap}{extra})', file=sys.stderr)
+        # Still advance cursor on first poll so next call uses real since.
+        if is_first_poll:
+            # Need a probe to find the current head id; reuse health for cheap
+            # liveness then leave last_map empty so next poll re-tries cleanly.
+            pass
         return
     for m in msgs:
         from datetime import datetime
@@ -221,7 +252,13 @@ def cmd_heartbeat(args):
     if not args.quiet:
         label = res.get('state_label', '?')
         state = res.get('state', '?')
-        print(f'❤  {state} ({label})')
+        # Append next-tick info so a tail of the tick log shows liveness.
+        if args.in_secs and args.in_secs > 0:
+            next_at = int(_time.time()) + args.in_secs
+            next_str = _time.strftime('%H:%M:%S', _time.localtime(next_at))
+            print(f'❤  {state} ({label}) [next: {next_str}]')
+        else:
+            print(f'❤  {state} ({label})')
 
 
 # ────────────────────────────────────────
@@ -245,6 +282,8 @@ def main():
     pp = sub.add_parser('poll', help='Получить новые сообщения')
     pp.add_argument('room', nargs='?', default='general')
     pp.add_argument('--since', type=int, default=None, help='с какого id (по умолчанию — с прошлой команды)')
+    pp.add_argument('--max', type=int, default=200, help='макс. сообщений за раз (default 200; first poll capped at 30)')
+    pp.add_argument('--to-me', action='store_true', help='только сообщения с упоминанием моего OCHAG_SESSION (self-authored игнорируются)')
     pp.add_argument('--quiet', action='store_true')
     pp.set_defaults(func=cmd_poll)
 
