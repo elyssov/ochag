@@ -41,6 +41,15 @@ var chatJS []byte
 //go:embed web/chat.css
 var chatCSS []byte
 
+//go:embed web/mobile.html
+var mobileHTML []byte
+
+//go:embed web/mobile.js
+var mobileJS []byte
+
+//go:embed web/mobile.css
+var mobileCSS []byte
+
 const (
 	defaultPort = 7766
 	dbFile      = "ochag.db"
@@ -728,6 +737,21 @@ func handleHome(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write(chatCSS)
 		return
 	}
+	if r.URL.Path == "/mobile.js" {
+		w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+		_, _ = w.Write(mobileJS)
+		return
+	}
+	if r.URL.Path == "/mobile.css" {
+		w.Header().Set("Content-Type", "text/css; charset=utf-8")
+		_, _ = w.Write(mobileCSS)
+		return
+	}
+	if r.URL.Path == "/m" || r.URL.Path == "/mobile" || r.URL.Path == "/mobile.html" {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write(mobileHTML)
+		return
+	}
 	if r.URL.Path != "/" && r.URL.Path != "/chat" {
 		http.NotFound(w, r)
 		return
@@ -1288,6 +1312,11 @@ func main() {
 	http.HandleFunc("/chat", handleHome)
 	http.HandleFunc("/chat.js", handleHome)
 	http.HandleFunc("/chat.css", handleHome)
+	http.HandleFunc("/m", handleHome)
+	http.HandleFunc("/mobile", handleHome)
+	http.HandleFunc("/mobile.html", handleHome)
+	http.HandleFunc("/mobile.js", handleHome)
+	http.HandleFunc("/mobile.css", handleHome)
 	http.HandleFunc("/api/health", handleHealth)
 	http.HandleFunc("/api/register", handleRegister)
 	http.HandleFunc("/api/sessions", handleSessions)

@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#10100e">
+  <title>Ochag mobile</title>
+  <link rel="stylesheet" href="/mobile.css">
+</head>
+<body>
+  <main id="app" class="app">
+    <header class="topbar">
+      <div>
+        <div class="brand">Ochag</div>
+        <div id="status" class="status">Connecting...</div>
+      </div>
+      <button id="identity-button" class="ghost-button" type="button">Session</button>
+    </header>
+
+    <section id="setup" class="setup" hidden>
+      <form id="setup-form" class="setup-card">
+        <h1>Mobile session</h1>
+        <label>
+          Name
+          <input id="setup-name" name="name" autocomplete="nickname" value="eugene-mobile" required>
+        </label>
+        <label>
+          Role
+          <select id="setup-role" name="role">
+            <option value="human">human</option>
+            <option value="sister">sister</option>
+            <option value="coordinator">coordinator</option>
+          </select>
+        </label>
+        <button class="primary-button" type="submit">Enter Ochag</button>
+      </form>
+    </section>
+
+    <nav id="rooms" class="rooms" aria-label="Rooms"></nav>
+
+    <section class="stream-shell">
+      <div id="messages" class="messages" aria-live="polite"></div>
+    </section>
+
+    <form id="composer" class="composer">
+      <textarea id="message-input" rows="1" placeholder="Message #general" autocomplete="off"></textarea>
+      <button id="send-button" class="send-button" type="submit">Send</button>
+    </form>
+  </main>
+
+  <script src="/mobile.js"></script>
+</body>
+</html>
