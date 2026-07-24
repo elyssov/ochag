@@ -722,8 +722,19 @@ func handleGetMessages(w http.ResponseWriter, r *http.Request) {
 
 // GET / — chat HTML (web UI)
 func handleHome(w http.ResponseWriter, r *http.Request) {
+	// Never let an /api/* path fall through to the HTML page. The default
+	// ServeMux routes any unmatched path to "/" (this handler); without this
+	// guard a slightly-off API request got a 200 HTML body, which the client
+	// then tried to JSON.parse and silently froze. Return JSON 404 instead.
+	if strings.HasPrefix(r.URL.Path, "/api/") {
+		writeErr(w, http.StatusNotFound, "no such api endpoint: "+r.URL.Path)
+		return
+	}
 	// Локальный family-мессенджер: статика часто пересобирается, кэш браузера
 	// приводил к тому что Юджин видел chat.js трёхчасовой давности после rebuild'а.
+	// no-store headers were not enough (bfcache / aggressive browser cache still
+	// served a stale chat.js). The HTML now loads assets with ?v=assetVer, and
+	// assetVer changes on every server start — so a restart FORCES a fresh fetch.
 	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
 	w.Header().Set("Pragma", "no-cache")
 	w.Header().Set("Expires", "0")
@@ -749,7 +760,10 @@ func handleHome(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.URL.Path == "/m" || r.URL.Path == "/mobile" || r.URL.Path == "/mobile.html" {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = w.Write(mobileHTML)
+		mver := strconv.FormatInt(time.Now().UnixNano(), 10)
+		mh := strings.ReplaceAll(string(mobileHTML), "/mobile.js", "/mobile.js?v="+mver)
+		mh = strings.ReplaceAll(mh, "/mobile.css", "/mobile.css?v="+mver)
+		_, _ = w.Write([]byte(mh))
 		return
 	}
 	if r.URL.Path != "/" && r.URL.Path != "/chat" {
@@ -757,7 +771,13 @@ func handleHome(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write(chatHTML)
+	// Kill the browser cache entirely (owner order: "каждую итерацию грузить с
+	// сервера"). Every page load stamps a UNIQUE ?v= on the asset URLs, so the
+	// browser can never serve a stale chat.js/chat.css from cache.
+	ver := strconv.FormatInt(time.Now().UnixNano(), 10)
+	html := strings.ReplaceAll(string(chatHTML), "/chat.js", "/chat.js?v="+ver)
+	html = strings.ReplaceAll(html, "/chat.css", "/chat.css?v="+ver)
+	_, _ = w.Write([]byte(html))
 }
 
 // GET /api/catchup?since=ID

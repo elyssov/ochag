@@ -39,10 +39,20 @@ async function apiPost(path, body) {
 }
 
 async function apiGet(path) {
-  const headers = {};
+  const headers = { 'Accept': 'application/json' };
   if (session?.token) headers['Authorization'] = 'Bearer ' + session.token;
-  const r = await fetch(path, { headers });
-  if (!r.ok) throw new Error((await r.json()).error || r.statusText);
+  const r = await fetch(path, { headers, cache: 'no-store' });
+  if (!r.ok) {
+    let msg = r.statusText;
+    try { msg = (await r.json()).error || msg; } catch (e) {}
+    throw new Error(msg);
+  }
+  const ct = r.headers.get('content-type') || '';
+  if (ct.indexOf('application/json') === -1) {
+    // server served HTML/text for an API path — never feed it to JSON.parse
+    // (this silent case used to freeze the client). Treat as transient error.
+    throw new Error('non-JSON response for ' + path + ' (' + ct + ')');
+  }
   return r.json();
 }
 
@@ -553,6 +563,37 @@ async function sendReaction(messageId, emoji) {
   }
 }
 
+// Self-healing tail reconcile: fetch the latest N and insert any message not
+// already in the DOM, in id order. Cannot freeze — it always reads the real
+// tail, independent of the since-cursor.
+async function reconcileTail() {
+  try {
+    const url = '/api/messages?room=' + encodeURIComponent(currentRoom) + '&tail=true&limit=80';
+    const list = await apiGet(url);
+    if (!list || !list.length) return;
+    const container = document.getElementById('messages');
+    if (!container) return;
+    const wasAtBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 60;
+    let inserted = 0;
+    for (const m of list) {
+      if (document.getElementById('msg-' + m.id)) continue; // already present
+      const node = renderMessage(m);
+      let placed = false;
+      for (const child of container.children) {
+        const cid = parseInt(child.dataset.msgId, 10);
+        if (cid && cid > m.id) { container.insertBefore(node, child); placed = true; break; }
+      }
+      if (!placed) container.appendChild(node);
+      if (m.id > lastMessageId) lastMessageId = m.id;
+      const cur = roomCursors.get(currentRoom) || { last: 0, oldest: 0, loaded: true };
+      if (m.id > cur.last) cur.last = m.id;
+      roomCursors.set(currentRoom, cur);
+      inserted++;
+    }
+    if (inserted && wasAtBottom) container.scrollTop = container.scrollHeight;
+  } catch (e) { console.warn('reconcileTail error', e); }
+}
+
 async function pollMessages() {
   try {
     const list = await apiGet(`/api/messages?since=${lastMessageId}&room=${currentRoom}&limit=200`);
@@ -564,7 +605,9 @@ async function pollMessages() {
     for (const m of list) {
       if (m.id > maxId) maxId = m.id;
     }
-    await renderBatched(container, list, myToken);
+    // dedupe: skip anything already in the DOM (WS/reconcile may have it)
+    const fresh = list.filter(m => !document.getElementById('msg-' + m.id));
+    await renderBatched(container, fresh, myToken);
     if (myToken !== renderToken) return; // комнату сменили во время poll
     lastMessageId = maxId;
     // обновляем cursor этой комнаты — чтобы при возврате в неё не тянуть с нуля
@@ -628,6 +671,10 @@ async function sendMessage() {
 
 async function tick() {
   await pollMessages();
+  // SELF-HEAL: every ~5 ticks re-read the tail and fill any gap a dropped WS
+  // push left behind. The since-cursor skips gaps forever otherwise — this was
+  // the root cause of "перестаёт обновлять / пропала середина".
+  if (tickCounter % 5 === 4) await reconcileTail();
   // обновляем sessions список реже — каждые 3 тика = 9 сек
   if (++tickCounter % 3 === 0) {
     const list = await apiGet('/api/sessions');
@@ -640,8 +687,10 @@ let tickCounter = 0;
 function startPolling() {
   if (pollTimer) clearInterval(pollTimer);
   // While WS is alive we still poll, just rarely (reconciliation only).
-  const interval = ws && ws.readyState === WebSocket.OPEN ? 30000 : POLL_INTERVAL;
-  pollTimer = setInterval(tick, interval);
+  // Always poll at the steady interval. An "open" WS can silently stop
+  // delivering (dropped push); the old 30s slowdown then froze the client for
+  // minutes. WS stays a latency bonus, never a reason to lower the floor.
+  pollTimer = setInterval(tick, POLL_INTERVAL);
   updateWsStatus();
 }
 

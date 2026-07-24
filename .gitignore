@@ -62,3 +62,6 @@ server/ochag
 # OS
 .DS_Store
 Thumbs.db
+
+client/kira-*.txt
+archives/

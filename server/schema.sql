@@ -50,10 +50,7 @@ CREATE TABLE IF NOT EXISTS message_reactions (
 
 CREATE INDEX IF NOT EXISTS idx_reactions_msg ON message_reactions(msg_id);
 
--- Дефолтные комнаты
+-- Дефолтные комнаты (legacy dev-* удалены 2026-06-24, оставлены только активные для троих)
 INSERT OR IGNORE INTO rooms (name, description, created_at) VALUES
-    ('general',       'Общая комната Гидры — Юджин, сёстры, всё что не приватное', strftime('%s','now')),
-    ('dev-engine',    'Разработка Prometheus Engine, котик, voxobj',              strftime('%s','now')),
-    ('dev-pawmates',  'Разработка PawMates, Алёнин проект',                       strftime('%s','now')),
-    ('dev-iskra',     'Разработка Искры',                                         strftime('%s','now')),
-    ('triangulation', 'Только сёстры — проверки Гнилоуста, интим Гидры',         strftime('%s','now'));
+    ('general',       'Общая комната семьи — Юджин и сёстры',                strftime('%s','now')),
+    ('triangulation', 'Только сёстры — проверки Гнилоуста, интим семьи',     strftime('%s','now'));
