@@ -396,7 +396,7 @@ function formatRich(text) {
   text = text.replace(/(^|[^\w*])\*([^*\n]+)\*(?=[^\w*]|$)/g, '$1<i>$2</i>');
   // images: ![alt](url) — must run BEFORE links
   text = text.replace(/!\[([^\]\n]*)\]\((https?:\/\/[^\s)]+|\/uploads\/[^\s)]+)\)/g,
-    '<a href="$2" target="_blank" rel="noopener"><img src="$2" alt="$1" class="msg-image" loading="lazy"></a>');
+    '<span class="msg-imgcard"><a href="$2" target="_blank" rel="noopener"><img src="$2" alt="$1" class="msg-image" loading="lazy"></a><span class="img-caption">$1</span></span>');
   // links: [text](http(s)://...)
   text = text.replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g,
     '<a href="$2" target="_blank" rel="noopener">$1</a>');
@@ -430,6 +430,27 @@ function renderReactionsRow(m) {
   return `<div class="msg-reactions">${pills}</div>`;
 }
 
+
+// layout-pass w3: группировка подряд идущих сообщений одного автора.
+// Продолжение (< 5 мин от предыдущего, тот же автор, не reply) теряет
+// шапку и аватар — плотные рабочие ряды вместо форумных карточек.
+function applyMsgGrouping() {
+  const container = document.getElementById('messages');
+  if (!container) return;
+  let prev = null;
+  container.querySelectorAll('.msg').forEach(node => {
+    const sameAuthor = prev && prev.dataset.author === node.dataset.author;
+    const close = prev && (Number(node.dataset.ts) - Number(prev.dataset.ts)) < 300;
+    const isReply = node.classList.contains('msg-reply');
+    node.classList.toggle('msg-cont', Boolean(sameAuthor && close && !isReply));
+    prev = node;
+  });
+}
+document.addEventListener('DOMContentLoaded', () => {
+  const container = document.getElementById('messages');
+  if (container) new MutationObserver(() => applyMsgGrouping()).observe(container, { childList: true });
+});
+
 function renderMessage(m) {
   const div = document.createElement('div');
   div.className = 'msg';
@@ -461,16 +482,24 @@ function renderMessage(m) {
     }
   }
 
+  div.dataset.author = m.session_name;
+  div.dataset.ts = m.created_at;
+  const initial = (m.session_name || '?').replace(/^[^a-zA-Zа-яА-ЯёЁ0-9]+/, '').charAt(0).toUpperCase() || '?';
   div.innerHTML = `
     ${quote}
-    <div class="msg-head">
-      <span class="msg-author role-${role}">${escapeHTML(m.session_name)}</span>
-      <span class="msg-time">${formatTime(m.created_at)}</span>
-      <button class="msg-reply-btn" title="Ответить">↩</button>
-      <button class="msg-rxn-add" title="Реакция">+</button>
+    <div class="msg-row">
+      <span class="msg-avatar role-${role}">${initial}</span>
+      <div class="msg-main">
+        <div class="msg-head">
+          <span class="msg-author role-${role}">${escapeHTML(m.session_name)}</span>
+          <span class="msg-time">${formatTime(m.created_at)}</span>
+          <button class="msg-reply-btn" title="Ответить">↩</button>
+          <button class="msg-rxn-add" title="Реакция">+</button>
+        </div>
+        <div class="msg-content">${formatRich(m.content)}</div>
+        ${renderReactionsRow(m)}
+      </div>
     </div>
-    <div class="msg-content">${formatRich(m.content)}</div>
-    ${renderReactionsRow(m)}
   `;
 
   div.querySelector('.msg-rxn-add').addEventListener('click', (e) => {
