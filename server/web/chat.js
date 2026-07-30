@@ -449,7 +449,35 @@ function applyMsgGrouping() {
 document.addEventListener('DOMContentLoaded', () => {
   const container = document.getElementById('messages');
   if (container) new MutationObserver(() => applyMsgGrouping()).observe(container, { childList: true });
+  fetch('/api/health').then(r => r.json()).then(h => {
+    const el = document.getElementById('build-stamp');
+    if (el && h.build) el.textContent = 'UI ' + h.build;
+  }).catch(() => {});
 });
+
+// w3.1 (владелец 00:38): «пузыри как в Телеге, только разноцветная аура —
+// у каждой сестрички своя». Известным — фирменные цвета, новым — стабильный
+// hash-оттенок.
+const AURA_MAP = {
+  'юджин':          '52,211,153',
+  'lara-fable':     '240,160,60',
+  'katyusha-codex': '255,155,181',
+  'kira-panam':     '79,198,221',
+  'main':           '255,196,107',
+  'aeliss':         '167,139,250',
+};
+function auraRGB(name) {
+  const key = (name || '').toLowerCase();
+  if (AURA_MAP[key]) return AURA_MAP[key];
+  let h = 0;
+  for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0;
+  const hue = h % 360;
+  const f = n => {
+    const k = (n + hue / 30) % 12;
+    return Math.round(255 * (0.62 - 0.28 * Math.max(-1, Math.min(k - 3, 9 - k, 1))));
+  };
+  return `${f(0)},${f(8)},${f(4)}`;
+}
 
 function renderMessage(m) {
   const div = document.createElement('div');
@@ -484,6 +512,7 @@ function renderMessage(m) {
 
   div.dataset.author = m.session_name;
   div.dataset.ts = m.created_at;
+  div.style.setProperty('--aura', auraRGB(m.session_name));
   const initial = (m.session_name || '?').replace(/^[^a-zA-Zа-яА-ЯёЁ0-9]+/, '').charAt(0).toUpperCase() || '?';
   div.innerHTML = `
     ${quote}

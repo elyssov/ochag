@@ -263,19 +263,35 @@ header {
 }
 
 .msg {
-  padding: 8px 14px;
+  padding: 0;
   background: transparent;
-  border-radius: 8px;
-  border-left: 2px solid transparent;
   max-width: 100%;
   align-self: stretch;
   word-wrap: break-word;
-  margin-top: 10px;
-  transition: background 0.12s;
+  margin-top: 12px;
+  --aura: 139, 146, 158;
 }
 
-.msg-row { display: flex; gap: 12px; }
-.msg-main { flex: 1; min-width: 0; }
+.msg-row { display: flex; gap: 10px; align-items: flex-end; }
+.msg-main {
+  min-width: 0;
+  max-width: min(72%, 680px);
+  display: flex;
+  flex-direction: column;
+}
+
+/* пузырь с аурой сестры */
+.msg-main > .msg-head,
+.msg-main > .msg-content,
+.msg-main > .msg-reactions { background: transparent; }
+.msg-bubble-wrap { display: contents; }
+.msg-main {
+  background: var(--bg-2);
+  border: 1px solid rgba(var(--aura), 0.45);
+  border-radius: 14px;
+  padding: 8px 14px 9px;
+  box-shadow: 0 0 14px rgba(var(--aura), 0.13), 0 2px 8px rgba(0,0,0,0.30);
+}
 
 .msg-avatar {
   flex-shrink: 0;
@@ -288,23 +304,29 @@ header {
   font-weight: 700;
   font-size: 15px;
   background: var(--bg-3);
-  color: var(--accent-2);
-  border: 1px solid var(--border);
+  color: rgb(var(--aura));
+  border: 1px solid rgba(var(--aura), 0.5);
+  box-shadow: 0 0 8px rgba(var(--aura), 0.2);
   user-select: none;
 }
 .msg-avatar.role-human { color: var(--green); border-color: rgba(52,211,153,0.4); }
 .msg-avatar.role-coordinator { color: var(--pink); border-color: rgba(255,155,181,0.4); }
 
 /* продолжение группы: без шапки и аватара, плотный ряд */
-.msg.msg-cont { margin-top: 0; padding-top: 2px; padding-bottom: 2px; }
+.msg.msg-cont { margin-top: 4px; }
 .msg.msg-cont .msg-avatar { visibility: hidden; height: 0; }
 .msg.msg-cont .msg-head { display: none; }
+.msg.msg-cont .msg-main { border-radius: 10px 14px 14px 10px; }
+.msg.own.msg-cont .msg-main { border-radius: 14px 10px 10px 14px; }
 
-.msg:hover { background: rgba(36, 40, 48, 0.55); }
 
-.msg.own { border-left-color: var(--accent); }
 
-.msg.mention { border-left-color: var(--pink); }
+/* own = мои: пузырь уходит вправо, как в Телеге */
+.msg.own .msg-row { flex-direction: row-reverse; }
+.msg.own .msg-main { align-items: flex-end; }
+.msg.own .msg-head { flex-direction: row-reverse; }
+
+.msg.mention .msg-main { border-color: rgba(255,155,181,0.75); }
 
 .msg-head {
   display: flex;

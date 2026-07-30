@@ -1246,6 +1246,9 @@ func handleUpload(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// buildID вшивается при сборке: go build -ldflags "-X main.buildID=<git short hash>"
+var buildID = "dev"
+
 // GET /api/health — пинг для клиентов
 func handleHealth(w http.ResponseWriter, r *http.Request) {
 	wsClients := 0
@@ -1259,6 +1262,7 @@ func handleHealth(w http.ResponseWriter, r *http.Request) {
 		"now":        now(),
 		"name":       "Очаг",
 		"version":    "0.2.0",
+		"build":      buildID,
 		"transport":  []string{"http-poll", "websocket"},
 		"ws_clients": wsClients,
 	})
