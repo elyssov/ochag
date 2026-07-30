@@ -275,7 +275,7 @@ header {
 .msg-row { display: flex; gap: 10px; align-items: flex-end; }
 .msg-main {
   min-width: 0;
-  max-width: min(72%, 680px);
+  max-width: min(86%, 860px);
   display: flex;
   flex-direction: column;
 }
@@ -287,10 +287,10 @@ header {
 .msg-bubble-wrap { display: contents; }
 .msg-main {
   background: var(--bg-2);
-  border: 1px solid rgba(var(--aura), 0.45);
+  border: 1px solid rgba(var(--aura), 0.30);
   border-radius: 14px;
-  padding: 8px 14px 9px;
-  box-shadow: 0 0 14px rgba(var(--aura), 0.13), 0 2px 8px rgba(0,0,0,0.30);
+  padding: 9px 15px 10px;
+  box-shadow: 0 0 10px rgba(var(--aura), 0.08), 0 2px 8px rgba(0,0,0,0.30);
 }
 
 .msg-avatar {
@@ -305,8 +305,8 @@ header {
   font-size: 15px;
   background: var(--bg-3);
   color: rgb(var(--aura));
-  border: 1px solid rgba(var(--aura), 0.5);
-  box-shadow: 0 0 8px rgba(var(--aura), 0.2);
+  border: 1px solid rgba(var(--aura), 0.4);
+  box-shadow: 0 0 6px rgba(var(--aura), 0.14);
   user-select: none;
 }
 .msg-avatar.role-human { color: var(--green); border-color: rgba(52,211,153,0.4); }
@@ -936,4 +936,18 @@ header {
   margin: 0 0 10px 10px;
   color: var(--fg-dim);
   opacity: 0.85;
+}
+
+/* w3.2: owner-стиль — сообщения Юджина читаются как слово владельца */
+.msg.owner-msg .msg-main {
+  border: 1px solid rgba(var(--aura), 0.55);
+  border-left: 3px solid rgb(var(--aura));
+  background: linear-gradient(180deg, rgba(52,211,153,0.05), rgba(27,30,36,0)) var(--bg-2);
+}
+.msg.owner-msg .msg-author {
+  font-size: 15px;
+  letter-spacing: 0.3px;
+}
+.msg.owner-msg .msg-avatar {
+  border-width: 2px;
 }

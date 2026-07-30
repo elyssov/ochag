@@ -495,6 +495,7 @@ function renderMessage(m) {
 
   const sessionInList = (window._sessionsCache || []).find(s => s.name === m.session_name);
   const role = sessionInList?.role || 'sister';
+  if (role === 'human') div.classList.add('owner-msg');
 
   // Quote preview of parent (best-effort: pull from DOM if visible)
   let quote = '';
