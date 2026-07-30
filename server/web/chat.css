@@ -849,3 +849,14 @@ header {
   padding: 4px 8px 0 8px;
   text-align: center;
 }
+
+/* build stamp — тихий служебный огонёк (wave-3 pulled forward) */
+#build-stamp {
+  font-size: 11px;
+  color: var(--fg-dim);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 6px;
+  white-space: nowrap;
+  user-select: all;
+}
