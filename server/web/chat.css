@@ -134,9 +134,9 @@ header {
   user-select: none;
   white-space: nowrap;
 }
-#ws-status.ws-on   { color: #2ecc71; }
-#ws-status.ws-off  { color: #f39c12; }
-#ws-status.ws-dead { color: #95a5a6; }
+#ws-status.ws-on   { color: var(--green); border: 1px solid rgba(52,211,153,0.35); }
+#ws-status.ws-off  { color: var(--accent-2); border: 1px solid rgba(255,196,107,0.35); }
+#ws-status.ws-dead { color: var(--fg-dim); border: 1px solid var(--border); }
 
 .icon-btn {
   background: transparent;
@@ -193,18 +193,24 @@ header {
 }
 
 .block li {
-  padding: 8px 10px;
-  border-radius: 4px;
+  padding: 8px 12px;
+  border-radius: 8px;
   cursor: pointer;
   font-size: 14px;
+  border-left: 3px solid transparent;
+  transition: background 0.12s, transform 0.12s, border-color 0.12s;
 }
 
-.block li:hover { background: var(--bg-3); }
+.block li:hover {
+  background: var(--bg-3);
+  transform: translateX(2px);
+}
 
 .block li.active {
   background: var(--bg-3);
-  color: var(--accent);
+  color: var(--accent-2);
   font-weight: 600;
+  border-left-color: var(--accent);
 }
 
 .session-online::before { content: "● "; color: var(--green); }
@@ -257,17 +263,20 @@ header {
 }
 
 .msg {
-  padding: 8px 12px;
+  padding: 10px 14px;
   background: var(--bg-2);
   border-radius: 8px;
-  border-left: 3px solid var(--border);
-  max-width: 85%;
+  border-left: 2px solid var(--border);
+  max-width: 100%;
+  align-self: stretch;
   word-wrap: break-word;
+  transition: background 0.12s;
 }
 
+.msg:hover { background: #1e222a; }
+
 .msg.own {
-  align-self: flex-end;
-  background: var(--bg-3);
+  background: var(--bg-2);
   border-left-color: var(--accent);
 }
 
@@ -290,8 +299,16 @@ header {
 
 .msg-content {
   white-space: pre-wrap;
-  font-size: 14px;
+  font-size: 15px;
   line-height: 1.5;
+}
+
+.msg-content code {
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 13px;
+  background: var(--bg-3);
+  border-radius: 4px;
+  padding: 1px 5px;
 }
 
 .msg-content .mention {
@@ -313,29 +330,34 @@ header {
   background: var(--bg-3);
   color: var(--fg);
   border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 10px 12px;
-  font-size: 14px;
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 15px;
   font-family: inherit;
   resize: none;
   min-height: 40px;
   max-height: 200px;
+  box-shadow: inset 0 1px 4px rgba(0,0,0,0.35);
+  transition: border-color 0.12s, box-shadow 0.12s;
 }
 
 #send-input:focus {
   outline: none;
   border-color: var(--accent);
+  box-shadow: inset 0 1px 4px rgba(0,0,0,0.35), 0 0 0 2px rgba(240,160,60,0.18);
 }
 
 #send-form button {
   background: var(--accent);
   color: #1a0e05;
   border: none;
-  border-radius: 6px;
+  border-radius: 8px;
+  height: 36px;
   padding: 0 20px;
   font-weight: 600;
   cursor: pointer;
   align-self: flex-end;
+  transition: background 0.12s, transform 0.12s;
   height: 40px;
 }
 
@@ -379,7 +401,7 @@ header {
   border-radius: 6px;
   overflow-x: auto;
   margin: 6px 0;
-  border-left: 3px solid var(--accent, #c97aff);
+  border-left: 3px solid var(--accent);
 }
 .msg-content pre code {
   background: transparent;
@@ -387,7 +409,7 @@ header {
   color: #e8e3d8;
 }
 .msg-content blockquote {
-  border-left: 3px solid var(--accent, #c97aff);
+  border-left: 3px solid var(--accent);
   margin: 6px 0;
   padding: 4px 12px;
   color: rgba(255,255,255,0.75);
@@ -445,7 +467,7 @@ header {
   background: rgba(201, 122, 255, 0.18);
   border-color: rgba(201, 122, 255, 0.5);
 }
-.rxn-mine b { color: #e8c8ff; }
+.rxn-mine b { color: var(--accent-2); }
 
 .reaction-picker {
   position: fixed;
@@ -512,7 +534,7 @@ header {
   font-size: 0.88em;
   color: rgba(255,255,255,0.85);
 }
-#reply-badge b { color: #e8c8ff; }
+#reply-badge b { color: var(--accent-2); }
 #reply-badge button {
   background: transparent;
   border: none;
@@ -566,7 +588,7 @@ header {
 }
 .search-hit:hover {
   background: rgba(255,255,255,0.08);
-  border-left-color: var(--accent, #c97aff);
+  border-left-color: var(--accent);
 }
 .search-hit-head {
   font-size: 0.85em;
@@ -684,14 +706,14 @@ header {
 }
 .state-active   .session-name { color: #d8ffd5; }
 .state-active   .session-dot  { filter: drop-shadow(0 0 3px rgba(70, 220, 90, 0.5)); }
-.state-idle     .session-name { color: #fff0c2; }
-.state-working  .session-name { color: #cce0ff; }
-.state-working  .session-sub  { color: rgba(150, 190, 240, 0.7); }
-.state-sleeping .session-name { color: rgba(220, 200, 255, 0.85); }
+.state-idle     .session-name { color: var(--accent-2); }
+.state-working  .session-name { color: var(--cyan); }
+.state-working  .session-sub  { color: rgba(79, 198, 221, 0.65); }
+.state-sleeping .session-name { color: rgba(226, 229, 234, 0.75); }
 .state-sleeping .session-dot  {
   animation: presence-breathe 2s ease-in-out infinite;
 }
-.state-sleeping .session-sub  { color: rgba(220, 200, 255, 0.55); }
+.state-sleeping .session-sub  { color: rgba(226, 229, 234, 0.45); }
 .state-away     .session-name { color: rgba(255,255,255,0.55); }
 .state-offline  .session-name { color: rgba(255,255,255,0.35); }
 .state-offline  .session-dot  { opacity: 0.4; }
@@ -708,7 +730,7 @@ header {
   bottom: 20px;
   z-index: 250;
   background: var(--bg-2, #1b1e24);
-  border: 1px solid rgba(201, 122, 255, 0.4);
+  border: 1px solid rgba(240, 160, 60, 0.4);
   border-radius: 8px;
   padding: 10px 12px;
   display: flex;
@@ -730,10 +752,10 @@ header {
 }
 #notif-toast button:hover { background: rgba(255,255,255,0.1); }
 #notif-toast #notif-yes {
-  background: rgba(201, 122, 255, 0.22);
-  border-color: rgba(201, 122, 255, 0.55);
+  background: rgba(240, 160, 60, 0.22);
+  border-color: rgba(240, 160, 60, 0.55);
 }
-#notif-toast #notif-yes:hover { background: rgba(201, 122, 255, 0.35); }
+#notif-toast #notif-yes:hover { background: rgba(240, 160, 60, 0.35); }
 #notif-toast #notif-no { padding: 4px 8px; }
 
 @keyframes notif-slide-in {
@@ -744,28 +766,33 @@ header {
 
 /* attach:v1 — image upload */
 #attach-btn {
-  background: transparent;
+  background: var(--bg-3);
   border: 1px solid var(--border);
-  color: var(--accent);
+  color: var(--fg-dim);
+  height: 36px;
   padding: 0 0.7em;
   cursor: pointer;
   font-size: 1.1em;
-  border-radius: 4px;
+  border-radius: 8px;
   margin-right: 0.4em;
-  transition: background 0.15s, border-color 0.15s;
+  align-self: flex-end;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
 }
 #attach-btn:hover {
-  background: rgba(255, 138, 61, 0.1);
+  background: rgba(240, 160, 60, 0.12);
   border-color: var(--accent);
+  color: var(--accent);
 }
 .msg-image {
   max-width: 400px;
   max-height: 300px;
   display: block;
-  border-radius: 6px;
-  margin: 6px 0;
-  cursor: pointer;
+  border-radius: 8px;
+  margin: 8px 0;
+  cursor: zoom-in;
   border: 1px solid var(--border);
+  background: var(--bg-3);
+  padding: 3px;
   transition: border-color 0.15s, transform 0.15s;
 }
 .msg-image:hover {
