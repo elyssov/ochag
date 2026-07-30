@@ -396,7 +396,7 @@ function formatRich(text) {
   text = text.replace(/(^|[^\w*])\*([^*\n]+)\*(?=[^\w*]|$)/g, '$1<i>$2</i>');
   // images: ![alt](url) — must run BEFORE links
   text = text.replace(/!\[([^\]\n]*)\]\((https?:\/\/[^\s)]+|\/uploads\/[^\s)]+)\)/g,
-    '<img src="$2" alt="$1" class="msg-image" loading="lazy">');
+    '<a href="$2" target="_blank" rel="noopener"><img src="$2" alt="$1" class="msg-image" loading="lazy"></a>');
   // links: [text](http(s)://...)
   text = text.replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g,
     '<a href="$2" target="_blank" rel="noopener">$1</a>');
