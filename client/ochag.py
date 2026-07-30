@@ -265,6 +265,43 @@ def cmd_heartbeat(args):
 # main
 # ────────────────────────────────────────
 
+
+# ── send-image (контракт Очага 30.07: сёстры показывают картинки) ────────
+
+def cmd_send_image(args):
+    """Upload an image to /api/uploads (multipart) and post it to the room
+    as ![name](url) with an optional caption. Pure stdlib multipart."""
+    import mimetypes, uuid
+    token = load_token()
+    path = Path(args.file)
+    if not path.exists():
+        print(f'❌ файл не найден: {path}', file=sys.stderr)
+        sys.exit(1)
+    mime = mimetypes.guess_type(str(path))[0] or 'application/octet-stream'
+    boundary = uuid.uuid4().hex
+    body = b''.join([
+        f'--{boundary}\r\n'.encode(),
+        f'Content-Disposition: form-data; name="file"; filename="{path.name}"\r\n'.encode(),
+        f'Content-Type: {mime}\r\n\r\n'.encode(),
+        path.read_bytes(),
+        f'\r\n--{boundary}--\r\n'.encode(),
+    ])
+    url = DEFAULT_HOST.rstrip('/') + '/api/uploads'
+    req = urllib.request.Request(url, data=body, method='POST', headers={
+        'Content-Type': f'multipart/form-data; boundary={boundary}',
+        'Authorization': 'Bearer ' + token,
+    })
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            up = json.loads(r.read().decode('utf-8'))
+    except urllib.error.HTTPError as e:
+        print(f'❌ upload HTTP {e.code}: {e.read().decode(errors="replace")[:200]}', file=sys.stderr)
+        sys.exit(1)
+    img_md = f'![{path.name}]({up["url"]})'
+    content = (args.caption + '\n\n' + img_md) if args.caption else img_md
+    res = http('POST', '/api/messages', {'room': args.room, 'content': content}, token=token)
+    print(f'✅ картинка {up["url"]} → id={res["id"]} в #{res["room"]}')
+
 def main():
     p = argparse.ArgumentParser(prog='ochag', description='Клиент Очага')
     sub = p.add_subparsers(dest='cmd', required=True)
@@ -295,6 +332,12 @@ def main():
 
     ph = sub.add_parser('health', help='Проверка сервера')
     ph.set_defaults(func=cmd_health)
+
+    psi = sub.add_parser('send-image', help='Загрузить картинку и показать её в комнате')
+    psi.add_argument('room')
+    psi.add_argument('file')
+    psi.add_argument('caption', nargs='?', default='')
+    psi.set_defaults(func=cmd_send_image)
 
     phb = sub.add_parser('heartbeat', help='Heartbeat для presence (опц. --in-secs N — следующий тик через N сек)')
     phb.add_argument('in_secs', nargs='?', type=int, default=0, help='Секунд до следующего пробуждения (опц.)')

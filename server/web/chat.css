@@ -1,21 +1,24 @@
 /* Очаг — Web UI стили
- * Тёмная тёплая палитра — мы у огня.
+ * Дизайн-система Кати v0.1 (30.07.2026): тёплая мастерская/операторская.
+ * Фон — глубокий графит/уголь (коричневый похоронен). Янтарь — ТОЛЬКО
+ * живой огонь и важные действия. Cyan — системные ссылки/машинный статус.
  * Мобильно-friendly: layout перестраивается на узких экранах.
  */
 
 :root {
-  --bg:        #1a1310;        /* очень тёмный, кофе с дымом */
-  --bg-2:      #251c17;        /* чуть светлее, для panels */
-  --bg-3:      #322620;        /* для hover/input */
-  --fg:        #ebd9c7;        /* кремовый, ровный */
-  --fg-dim:    #a89684;        /* притушенный */
-  --accent:    #ff8a3d;        /* огонь, оранжевый */
-  --accent-2:  #ffb877;        /* мягкий огонь */
+  --bg:        #14161a;        /* глубокий графит */
+  --bg-2:      #1b1e24;        /* панели — уголь */
+  --bg-3:      #242830;        /* hover/input */
+  --fg:        #e2e5ea;        /* холодный светлый */
+  --fg-dim:    #8b929e;        /* притушенный */
+  --accent:    #f0a03c;        /* тёплый янтарь: живой огонь, action */
+  --accent-2:  #ffc46b;        /* мягкий янтарь */
+  --cyan:      #4fc6dd;        /* системные ссылки / машинный статус */
   --green:     #34d399;        /* Аэлис-зелёный для acceptов */
   --pink:      #ff9bb5;        /* нежный для @mention */
   --red:       #ef5350;        /* тревога */
-  --border:    #3a2b22;
-  --shadow:    0 4px 20px rgba(0,0,0,0.5);
+  --border:    #2b303a;
+  --shadow:    0 4px 20px rgba(0,0,0,0.55);
 }
 
 * { box-sizing: border-box; }
@@ -35,7 +38,7 @@ body {
 /* ─── Login overlay ─── */
 .overlay {
   position: fixed; inset: 0;
-  background: radial-gradient(ellipse at center, #2a1f18 0%, #0f0a07 100%);
+  background: radial-gradient(ellipse at center, #1e222a 0%, #0b0d10 100%);
   display: flex; align-items: center; justify-content: center;
   z-index: 100;
 }
@@ -391,10 +394,10 @@ header {
   font-style: italic;
 }
 .msg-content a {
-  color: #8ec5ff;
+  color: var(--cyan);
   text-decoration: underline dotted;
 }
-.msg-content a:hover { color: #b6d8ff; }
+.msg-content a:hover { color: #8fe3f2; }
 .msg-content b, .msg-content strong { color: #ffe8b3; }
 .msg-content i, .msg-content em { color: rgba(255,255,255,0.85); }
 
@@ -446,7 +449,7 @@ header {
 
 .reaction-picker {
   position: fixed;
-  background: var(--bg-2, #2a2522);
+  background: var(--bg-2, #1b1e24);
   border: 1px solid rgba(255,255,255,0.15);
   border-radius: 8px;
   padding: 4px;
@@ -533,7 +536,7 @@ header {
 }
 #search-overlay .search-card {
   width: min(640px, 90vw);
-  background: var(--bg-2, #2a2522);
+  background: var(--bg-2, #1b1e24);
   border: 1px solid rgba(255,255,255,0.18);
   border-radius: 10px;
   box-shadow: 0 12px 36px rgba(0,0,0,0.5);
@@ -704,7 +707,7 @@ header {
   right: 20px;
   bottom: 20px;
   z-index: 250;
-  background: var(--bg-2, #2a2522);
+  background: var(--bg-2, #1b1e24);
   border: 1px solid rgba(201, 122, 255, 0.4);
   border-radius: 8px;
   padding: 10px 12px;
